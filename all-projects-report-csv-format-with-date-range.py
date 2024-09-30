@@ -7,8 +7,8 @@ import argparse
 # import os
 
 # GitLab API configuration
-GITLAB_URL = "https://git.nsdcindia.co"  # Replace with your GitLab instance URL if self-hosted
-PRIVATE_TOKEN = "CXambqciDbeGm3VrsWkF"  # Replace with your actual token # os.environ.get("GITLAB_TOKEN")  # Use environment variable for the token
+GITLAB_URL = "https://gitlab.com"  # Replace with your GitLab instance URL if self-hosted
+PRIVATE_TOKEN = "GITLAB_TOKEN"  # Replace with your actual token # os.environ.get("GITLAB_TOKEN")  # Use environment variable for the token
 if not PRIVATE_TOKEN:
     raise ValueError("GITLAB_TOKEN environment variable must be set")
 HEADERS = {"Private-Token": PRIVATE_TOKEN}
@@ -92,8 +92,8 @@ def generate_report(start_date, end_date, report_types):
     projects = get_all_projects()
 
     all_commits = []
-    all_authors = defaultdict(lambda: defaultdict(lambda: defaultdict(int)))
-    all_files = defaultdict(int)
+    all_authors = defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: {"count": 0, "project_url": ""})))
+    all_files = defaultdict(lambda: {"count": 0, "project_url": ""})
 
     for project in projects:
         project_id = project['id']
@@ -110,10 +110,13 @@ def generate_report(start_date, end_date, report_types):
                 commit['branch_name'] = branch_name
                 commit['project_url'] = project_url
                 all_commits.append(commit)
-                all_authors[commit['author_name']][project_name][branch_name] += 1
+                all_authors[commit['author_name']][project_name][branch_name]["count"] += 1
+                all_authors[commit['author_name']][project_name][branch_name]["project_url"] = project_url
                 details = get_commit_details(project_id, commit['id'])
                 for file in details:
-                    all_files[f"{project_name}: {branch_name}: {file['new_path']}"] += 1
+                    key = f"{project_name}: {branch_name}: {file['new_path']}"
+                    all_files[key]["count"] += 1
+                    all_files[key]["project_url"] = project_url
 
     date_str = start_date.strftime("%Y-%m-%d")
     if 'commits' in report_types:
@@ -147,20 +150,20 @@ def generate_authors_csv(authors, date_str):
     filename = f'all_authors_report_{date_str}.csv'
     with open(filename, 'w', newline='', encoding='utf-8') as file:
         writer = csv.writer(file)
-        writer.writerow(['Author', 'Project', 'Branch', 'Commit Count', 'Date'])
+        writer.writerow(['Author', 'Project', 'Branch', 'Commit Count', 'Date', 'Repository Link'])
         for author, projects in authors.items():
             for project, branches in projects.items():
-                for branch, count in branches.items():
-                    writer.writerow([author, project, branch, count, date_str])
+                for branch, data in branches.items():
+                    writer.writerow([author, project, branch, data["count"], date_str, data["project_url"]])
 
 
 def generate_files_csv(files_changed, date_str):
     filename = f'all_files_report_{date_str}.csv'
     with open(filename, 'w', newline='', encoding='utf-8') as file:
         writer = csv.writer(file)
-        writer.writerow(['Project: Branch: File Path', 'Change Count', 'Date'])
-        for file, count in sorted(files_changed.items(), key=lambda x: x[1], reverse=True):
-            writer.writerow([file, count, date_str])
+        writer.writerow(['Project: Branch: File Path', 'Change Count', 'Date', 'Repository Link'])
+        for file, data in sorted(files_changed.items(), key=lambda x: x[1]["count"], reverse=True):
+            writer.writerow([file, data["count"], date_str, data["project_url"]])
 
 
 def parse_date(date_str):
