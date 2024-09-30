@@ -1,20 +1,23 @@
-import requests
-import csv
-from datetime import datetime
-from collections import defaultdict
 import argparse
+import csv
+import os
+from collections import defaultdict
+from datetime import datetime
 
-# import os
+import requests
 
 # GitLab API configuration
-GITLAB_URL = "https://gitlab.com"  # Replace with your GitLab instance URL if self-hosted
-PRIVATE_TOKEN = "GITLAB_TOKEN"  # Replace with your actual token # os.environ.get("GITLAB_TOKEN")  # Use environment variable for the token
+GITLAB_URL = os.environ.get("GITLAB_URL")  # Use environment variable for the GitLab instance URL if self-hosted
+if not GITLAB_URL:
+    GITLAB_URL = "https://gitlab.com"   # Default GitLab URL if not set as environment variable
+PRIVATE_TOKEN = os.environ.get("GITLAB_TOKEN")  # Use environment variable for the token
 if not PRIVATE_TOKEN:
-    raise ValueError("GITLAB_TOKEN environment variable must be set")
+    raise ValueError("GITLAB_TOKEN environment variable must be set. export GITLAB_TOKEN=your_gitlab_token_here")
 HEADERS = {"Private-Token": PRIVATE_TOKEN}
 
 
 def get_all_projects():
+    print(f"Fetching projects from {GITLAB_URL}")
     projects = []
     page = 1
     while True:
