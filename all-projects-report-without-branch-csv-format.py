@@ -80,7 +80,8 @@ def get_commits(project_id, branch, start_date, end_date):
 
 def generate_authors_report(start_date, end_date):
     projects = get_all_projects()
-    all_authors = defaultdict(lambda: defaultdict(lambda: {"commit_count": 0, "project_url": "", "dates": set()}))
+    all_authors = defaultdict(
+lambda: defaultdict(lambda: {"commit_count": 0, "project_url": "", "dates": set(), "commit_ids": set()}))
 
     for project in projects:
         project_id = project['id']
@@ -94,17 +95,22 @@ def generate_authors_report(start_date, end_date):
 
             for commit in commits:
                 author = commit['author_name']
+                commit_id = commit['id']
                 commit_date = datetime.strptime(commit['created_at'], "%Y-%m-%dT%H:%M:%S.%f%z").date()
-                all_authors[author][project_name]["commit_count"] += 1
-                all_authors[author][project_name]["project_url"] = project_url
-                all_authors[author][project_name]["dates"].add(commit_date)
+
+                # Check if commit is already counted for this author and project
+                if commit_id not in all_authors[author][project_name]["commit_ids"]:
+                    all_authors[author][project_name]["commit_count"] += 1
+                    all_authors[author][project_name]["project_url"] = project_url
+                    all_authors[author][project_name]["dates"].add(commit_date)
+                    all_authors[author][project_name]["commit_ids"].add(commit_id)  # Track the commit ID
 
     generate_authors_csv(all_authors, start_date, end_date)
     return f"Authors report generated for {len(projects)} projects from {start_date.date()} to {end_date.date()}"
 
 
 def generate_authors_csv(authors, start_date, end_date):
-    filename = f'authors_report_{start_date.strftime("%Y%m%d")}_{end_date.strftime("%Y%m%d")}.csv'
+    filename = f'authors_report_{start_date.strftime("%Y-%m-%d")}_{end_date.strftime("%Y-%m-%d")}.csv'
     with open(filename, 'w', newline='', encoding='utf-8') as file:
         writer = csv.writer(file)
         writer.writerow(['Author', 'Project', 'Commit Count', 'Dates', 'Repository Link'])
