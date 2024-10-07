@@ -11,7 +11,7 @@ Set the environment variables:
 
 Ensure your GitLab instance URL if self-hosted, is set as an environment variable:
 ```shell
-export GITLAB_URL=your_gitlab_instane_url
+export GITLAB_URL=your_gitlab_instance_url
 ```
 
 Ensure your GitLab token is set as an environment variable:

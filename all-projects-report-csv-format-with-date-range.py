@@ -10,6 +10,7 @@ import requests
 GITLAB_URL = os.environ.get("GITLAB_URL")  # Use environment variable for the GitLab instance URL if self-hosted
 if not GITLAB_URL:
     GITLAB_URL = "https://gitlab.com"   # Default GitLab URL if not set as environment variable
+    print(f"Set GitLab instance URL if self-hosted. export GITLAB_URL=your_gitlab_instance_url")
 PRIVATE_TOKEN = os.environ.get("GITLAB_TOKEN")  # Use environment variable for the token
 if not PRIVATE_TOKEN:
     raise ValueError("GITLAB_TOKEN environment variable must be set. export GITLAB_TOKEN=your_gitlab_token_here")
