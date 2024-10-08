@@ -4,12 +4,13 @@ from datetime import datetime
 from collections import defaultdict
 import argparse
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # GitLab API configuration
-GITLAB_URL = os.environ.get("GITLAB_URL")  # Use environment variable for the GitLab instance URL if self-hosted
-if not GITLAB_URL:
-    GITLAB_URL = "https://gitlab.com"  # Default GitLab URL if not set as environment variable
-    print(f"Set GitLab instance URL if self-hosted. export GITLAB_URL=your_gitlab_instance_url")
+# Use environment variable for the GitLab instance URL if self-hosted.
+# Default GitLab URL if not set as environment variable
+GITLAB_URL = os.environ.get("GITLAB_URL", "https://gitlab.com")
+
 PRIVATE_TOKEN = os.environ.get("GITLAB_TOKEN")  # Use environment variable for the token
 if not PRIVATE_TOKEN:
     raise ValueError("GITLAB_TOKEN environment variable must be set. export GITLAB_TOKEN=your_gitlab_token_here")
@@ -17,23 +18,27 @@ HEADERS = {"Private-Token": PRIVATE_TOKEN}
 
 
 def get_all_projects():
+    print(f"Fetching projects from {GITLAB_URL}")
     projects = []
     page = 1
-    while True:
-        response = requests.get(f"{GITLAB_URL}/api/v4/projects?page={page}&per_page=100", headers=HEADERS)
-        if response.status_code == 200:
-            batch = response.json()
-            if not batch:
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        futures = []
+        while True:
+            response = requests.get(f"{GITLAB_URL}/api/v4/projects?page={page}&per_page=100", headers=HEADERS)
+            if response.status_code == 200:
+                batch = response.json()
+                if not batch:
+                    break
+                projects.extend(batch)
+                page += 1
+            else:
+                print(f"Error fetching projects: {response.status_code}")
                 break
-            projects.extend(batch)
-            page += 1
-        else:
-            print(f"Error fetching projects: {response.status_code}")
-            break
     return projects
 
 
-def get_project_branches(project_id):
+def fetch_project_branches(project):
+    project_id = project['id']
     branches = []
     page = 1
     while True:
@@ -48,17 +53,19 @@ def get_project_branches(project_id):
         else:
             print(f"Error fetching branches for project {project_id}: {response.status_code}")
             break
-    return branches
+    return project, branches
 
 
-def get_commits(project_id, branch, start_date, end_date):
+def fetch_commits(project, branch, start_date, end_date):
+    project_id = project['id']
+    branch_name = branch['name']
     commits = []
     page = 1
     while True:
         response = requests.get(
             f"{GITLAB_URL}/api/v4/projects/{project_id}/repository/commits",
             params={
-                "ref_name": branch,
+                "ref_name": branch_name,
                 "since": start_date.isoformat(),
                 "until": end_date.isoformat(),
                 "page": page,
@@ -73,37 +80,42 @@ def get_commits(project_id, branch, start_date, end_date):
             commits.extend(batch)
             page += 1
         else:
-            print(f"Error fetching commits for project {project_id}, branch {branch}: {response.status_code}")
+            print(f"Error fetching commits for project {project_id}, branch {branch_name}: {response.status_code}")
             break
-    return commits
+    return project, branch_name, commits
 
 
 def generate_authors_report(start_date, end_date):
     projects = get_all_projects()
     all_authors = defaultdict(
-lambda: defaultdict(lambda: {"commit_count": 0, "project_url": "", "dates": set(), "commit_ids": set()}))
+        lambda: defaultdict(lambda: {"commit_count": 0, "project_url": "", "dates": set(), "commit_ids": set()}))
 
-    for project in projects:
-        project_id = project['id']
-        project_name = project['name']
-        project_url = project['web_url']
-        branches = get_project_branches(project_id)
+    with ThreadPoolExecutor(max_workers=20) as executor:
+        branch_futures = {executor.submit(fetch_project_branches, project): project for project in projects}
 
-        for branch in branches:
-            branch_name = branch['name']
-            commits = get_commits(project_id, branch_name, start_date, end_date)
+        for future in as_completed(branch_futures):
+            project, branches = future.result()
+            project_id = project['id']
+            project_name = project['name']
+            project_url = project['web_url']
 
-            for commit in commits:
-                author = commit['author_name']
-                commit_id = commit['id']
-                commit_date = datetime.strptime(commit['created_at'], "%Y-%m-%dT%H:%M:%S.%f%z").date()
+            commit_futures = {executor.submit(fetch_commits, project, branch, start_date, end_date): branch for branch
+                              in branches}
 
-                # Check if commit is already counted for this author and project
-                if commit_id not in all_authors[author][project_name]["commit_ids"]:
-                    all_authors[author][project_name]["commit_count"] += 1
-                    all_authors[author][project_name]["project_url"] = project_url
-                    all_authors[author][project_name]["dates"].add(commit_date)
-                    all_authors[author][project_name]["commit_ids"].add(commit_id)  # Track the commit ID
+            for commit_future in as_completed(commit_futures):
+                project, branch_name, commits = commit_future.result()
+
+                for commit in commits:
+                    author = commit['author_name']
+                    commit_id = commit['id']
+                    commit_date = datetime.strptime(commit['created_at'], "%Y-%m-%dT%H:%M:%S.%f%z").date()
+
+                    # Check if commit is already counted for this author and project
+                    if commit_id not in all_authors[author][project_name]["commit_ids"]:
+                        all_authors[author][project_name]["commit_count"] += 1
+                        all_authors[author][project_name]["project_url"] = project_url
+                        all_authors[author][project_name]["dates"].add(commit_date)
+                        all_authors[author][project_name]["commit_ids"].add(commit_id)
 
     generate_authors_csv(all_authors, start_date, end_date)
     return f"Authors report generated for {len(projects)} projects from {start_date.date()} to {end_date.date()}"
